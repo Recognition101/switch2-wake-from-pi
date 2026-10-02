@@ -1,0 +1,5 @@
+[environment]
+extra-paths = ["typings", ".stubs"]
+
+[src]
+exclude = ["micropython", ".stubs"]

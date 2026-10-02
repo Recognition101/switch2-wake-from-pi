@@ -1,0 +1,24 @@
+# Language specific files
+.npm
+npm-debug.log
+node_modules
+.sass-cache
+
+# Config / Build Files
+src/config.py
+firmware.uf2
+
+# Dependencies
+micropython
+.stubs
+
+# Editor specific project files
+.tern-project
+*.swp
+*.swo
+.idea
+tmux-*
+
+# OS files
+.DS_Store
+
