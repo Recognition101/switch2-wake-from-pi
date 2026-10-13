@@ -254,6 +254,7 @@ def _http_response(
     """
     return (
         b"HTTP/1.1 " + status_line + b"\r\n"
+        b"Access-Control-Allow-Origin: *\r\n"
         b"Content-Type: " + content_type + b"\r\n"
         b"Content-Length: " + str(len(body_bytes)).encode() + b"\r\n"
         b"Connection: close\r\n"
@@ -284,17 +285,16 @@ async def handle_client(
             break
 
     parts = request_line.split()
+    method = parts[0]
     path = parts[1] if len(parts) >= 2 else b""
     path = path.split(b"?", 1)[0]
 
-    if parts[:1] != [b"GET"]:
-        response = _http_response(b"405 Method Not Allowed", b"")
-    elif path == b"/scan":
+    if method == b"POST" and path == b"/scan":
         _scanning = True
         _ble.gap_scan(SCAN_DURATION_MS, SCAN_INTERVAL_US, SCAN_WINDOW_US, False)
         print("[scan][INFO] scanning (%d ms)" % SCAN_DURATION_MS)
         response = _http_response(b"200 OK", b"scanning\n")
-    elif path == b"/get-payload":
+    elif method == b"GET" and path == b"/get-payload":
         if _payload is None:
             response = _http_response(
                 b"200 OK",
@@ -304,7 +304,7 @@ async def handle_client(
         else:
             body = payload_json(_payload).encode()
             response = _http_response(b"200 OK", body, b"application/json")
-    elif path == b"/replay":
+    elif method == b"POST" and path == b"/replay":
         if _payload is None:
             body = b"no payload yet\n"
         else:
@@ -312,7 +312,7 @@ async def handle_client(
             body = b"replaying: " + _hex(_payload["body"]).encode() + b"\n"
         response = _http_response(b"200 OK", body)
     else:
-        response = _http_response(b"404 Not Found", b"")
+        response = _http_response(b"404 Not Found", b"404 Not Found")
 
     writer.write(response)
     await writer.drain()
@@ -345,7 +345,7 @@ async def main() -> None:
 
     await asyncio.start_server(handle_client, "0.0.0.0", 80)
     print("[main][INFO] HTTP server listening on port 80")
-    print("[main][INFO] routes: GET /scan, GET /get-payload, GET /replay")
+    print("[main][INFO] routes: POST /scan, GET /get-payload, POST /replay")
     while True:
         await asyncio.sleep(3600)
 
