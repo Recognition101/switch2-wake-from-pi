@@ -5,6 +5,7 @@ import binascii
 import network
 import bluetooth
 import asyncio
+import machine
 import micropython
 from micropython import const
 
@@ -33,6 +34,9 @@ SCAN_DURATION_MS = 5 * 60 * 1000 # `/scan` runs a scan this long (milliseconds)
 SCAN_INTERVAL_US = 60_000        # `/scan` time between checks (microseconds)
 SCAN_WINDOW_US = 60_000          # `/scan` check duration (microseconds)
 PAYLOAD_FILE = "/payload.json"
+WIFI_LOST_TIMEOUT_MS = 60_000
+WDT_TIMEOUT_MS = 8000
+WDT_FEED_FREQUENCY_MS = 1000
 
 _IRQ_SCAN_RESULT = const(5)
 _IRQ_SCAN_DONE = const(6)
@@ -239,6 +243,25 @@ async def fire_replay_burst(payload: "Payload") -> None:
         _advertising = False
 
 
+async def feed_watchdog(wdt: "machine.WDT", wlan: "network.WLAN") -> None:
+    """Feeds the watchdog periodically unless Wi-Fi is disconnected.
+
+    Args:
+        wdt (WDT): the started hardware watchdog
+        wlan (WLAN): the Wi-Fi interface to monitor
+    """
+    last_connected = time.ticks_ms()  # ty: ignore[unresolved-attribute]
+    while True:
+        now = time.ticks_ms()  # ty: ignore[unresolved-attribute]
+        last_connected = now if wlan.isconnected() else last_connected
+        if time.ticks_diff(now, last_connected) > WIFI_LOST_TIMEOUT_MS:  # ty: ignore[unresolved-attribute]
+            print("[main][ERROR] Wi-Fi disconnected, rebooting")
+            return
+
+        wdt.feed()
+        await asyncio.sleep_ms(WDT_FEED_FREQUENCY_MS)  # ty: ignore[unresolved-attribute]
+
+
 def _http_response(
     status_line: bytes, body_bytes: bytes, content_type: bytes = b"text/plain"
 ) -> bytes:
@@ -326,6 +349,8 @@ async def main() -> None:
     Globals:
         _ble (BLE): the Bluetooth LE connection
     """
+    wdt = machine.WDT(timeout=WDT_TIMEOUT_MS)
+
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     wlan.connect(WIFI_SSID, WIFI_PASSWORD)
@@ -334,6 +359,7 @@ async def main() -> None:
     while not wlan.isconnected():
         if time.ticks_diff(time.ticks_ms(), start) > 30_000:  # ty: ignore[unresolved-attribute]
             raise RuntimeError("Wi-Fi connect timed out")
+        wdt.feed()
         time.sleep_ms(200)  # ty: ignore[unresolved-attribute]
     print("[main][INFO] Wi-Fi connected, IP:", wlan.ifconfig()[0])
 
@@ -342,6 +368,9 @@ async def main() -> None:
     _ble.irq(_bt_irq)
     _ble.active(True)
     print("[main][INFO] Device BT MAC: %s" % _hex(_ble.config("mac")[1], ":"))
+
+    asyncio.create_task(feed_watchdog(wdt, wlan))
+    print("[main][INFO] watchdog started (%d ms)" % WDT_TIMEOUT_MS)
 
     await asyncio.start_server(handle_client, "0.0.0.0", 80)
     print("[main][INFO] HTTP server listening on port 80")
